@@ -58,7 +58,7 @@ datas_selecionadas = st.sidebar.slider(
     min_value=data_min,
     max_value=data_max,
     value=(data_min, data_max),
-    format="YYYY-MM-DD"
+    format="DD/MM/YYYY"
 )
 inicio_date, fim_date = datas_selecionadas
 dt_inicio = datetime.combine(inicio_date, datetime.min.time())
