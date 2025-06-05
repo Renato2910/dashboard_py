@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import altair as alt
+import io
 
 from backend import (
     criar_banco,
@@ -157,8 +157,125 @@ with tab1:
         use_container_width=True,
         color="#110B47"
     )
+
+    st.subheader("📋 Resumo de Indicadores Gerais (com filtro de mês)")
+
     
-    st.divider()
+
+    df_mes_ano = df_filtrado.copy()
+    df_mes_ano['mes_ano'] = df_mes_ano['data_venda'].dt.to_period('M')
+
+    meses_unicos = df_mes_ano['mes_ano'].dropna().unique().tolist()
+    meses_unicos = sorted(meses_unicos) 
+    meses_str = [str(m) for m in meses_unicos]
+
+    opcoes_meses = ["Todos"] + meses_str
+
+    mes_selecionado = st.selectbox(
+        "Selecione o mês para gerar o resumo:",
+        options=opcoes_meses,
+        index=0 
+    )
+
+    if mes_selecionado != "Todos":
+        periodo = pd.Period(mes_selecionado, freq="M")
+        df_summary = df_mes_ano[df_mes_ano['mes_ano'] == periodo].copy()
+    else:
+        df_summary = df_filtrado.copy()
+
+
+    total_vendas_m = calcular_total_vendas(df_summary) if not df_summary.empty else 0.0
+    quantidade_total_m = calcular_quantidade_total(df_summary) if not df_summary.empty else 0
+
+    ticket_medio_m = calcular_ticket_medio(df_summary) if not df_summary.empty else 0.0
+
+    num_clientes_m = df_summary['cliente'].nunique() if not df_summary.empty else 0
+
+    if not df_summary.empty:
+        produto_mais_vendido_m = (
+            df_summary.groupby('produto')['quantidade']
+            .sum()
+            .idxmax()
+        )
+    else:
+        produto_mais_vendido_m = "—"
+
+    if not df_summary.empty:
+        categoria_mais_faturou_m = (
+            df_summary.groupby('categoria')['valor_total']
+            .sum()
+            .idxmax()
+        )
+    else:
+        categoria_mais_faturou_m = "—"
+
+    if not df_summary.empty:
+        forma_mais_usada_m = (
+            df_summary['forma_pagamento']
+            .value_counts()
+            .idxmax()
+        )
+    else:
+        forma_mais_usada_m = "—"
+
+    if not df_summary.empty:
+        temp = df_summary.copy()
+        temp['dia'] = temp['data_venda'].dt.date
+        vendas_por_dia_m = (
+            temp.groupby('dia')['valor_total']
+            .sum()
+            .reset_index()
+            .rename(columns={'dia': 'Data', 'valor_total': 'Receita'})
+        )
+        dias_com_venda = vendas_por_dia_m['Data'].nunique()
+        venda_media_diaria_m = float(vendas_por_dia_m['Receita'].sum() / dias_com_venda) \
+            if dias_com_venda > 0 else 0.0
+        dia_maior_faturamento_m = vendas_por_dia_m.loc[
+            vendas_por_dia_m['Receita'].idxmax(), 'Data'
+        ].strftime("%Y-%m-%d")
+    else:
+        venda_media_diaria_m = 0.0
+        dia_maior_faturamento_m = "—"
+
+    resumo_dict = {
+        "Métrica": [
+            "Total de Vendas (R$)",
+            "Quantidade Total Vendida",
+            "Ticket Médio (R$)",
+            "Clientes Únicos",
+            "Produto Mais Vendido",
+            "Categoria que Mais Faturou",
+            "Forma de Pagamento Mais Utilizada",
+            "Venda Média Diária (R$)",
+            "Dia de Maior Faturamento"
+        ],
+        "Valor": [
+            f"R$ {total_vendas_m:,.2f}",
+            f"{quantidade_total_m:,}",
+            f"R$ {ticket_medio_m:,.2f}",
+            f"{num_clientes_m:,}",
+            produto_mais_vendido_m,
+            categoria_mais_faturou_m,
+            forma_mais_usada_m,
+            f"R$ {venda_media_diaria_m:,.2f}",
+            dia_maior_faturamento_m
+        ]
+    }
+    df_resumo = pd.DataFrame(resumo_dict)
+
+    st.table(df_resumo)
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_resumo.to_excel(writer, index=False, sheet_name="Resumo")
+    buffer.seek(0)
+
+    st.download_button(
+        label="⬇️ Exportar Resumo como Excel",
+        data=buffer,
+        file_name=f'resumo_indicadores_{mes_selecionado}.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 # ---------------------------- Aba 2: Análises Detalhadas ----------------------------
 with tab2:
@@ -244,6 +361,8 @@ with tab2:
 
     st.divider()
 
+    import io  # adicione isso no topo do seu script
+
     st.subheader("Tabela Dinâmica: Receita por Cliente x Categoria")
     pivot = (
         df_filtrado
@@ -256,10 +375,17 @@ with tab2:
         )
     )
     st.dataframe(pivot)
-    csv = pivot.to_csv().encode('utf-8')
+
+    # Gera um arquivo Excel em memória
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        pivot.to_excel(writer, sheet_name="Receita_Cliente_Categoria")
+    buffer.seek(0)
+
     st.download_button(
-        label="⬇️ Baixar Tabela como CSV",
-        data=csv,
-        file_name='tabela_dinamica_cliente_categoria.csv',
-        mime='text/csv'
+        label="⬇️ Baixar Tabela como Excel",
+        data=buffer,
+        file_name='tabela_dinamica_cliente_categoria.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
