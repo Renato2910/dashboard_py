@@ -53,41 +53,54 @@ st.sidebar.divider()
 data_min = df_vendas['data_venda'].min().date()
 data_max = df_vendas['data_venda'].max().date()
 
+formas_unicas = df_vendas['forma_pagamento'].dropna().unique().tolist()
+formas_disponiveis = ["Todos"] + sorted(formas_unicas)
+
+categorias_unicas = sorted(df_vendas['categoria'].dropna().unique().tolist())
+produtos_unicos   = sorted(df_vendas['produto'].dropna().unique().tolist())
+
 datas_selecionadas = st.sidebar.slider(
     "Período de Venda:",
     min_value=data_min,
     max_value=data_max,
     value=(data_min, data_max),
-    format="DD/MM/YYYY"
+    format="DD/MM/YYYY",
+    key="datas_selecionadas"
 )
 inicio_date, fim_date = datas_selecionadas
 dt_inicio = datetime.combine(inicio_date, datetime.min.time())
 dt_fim    = datetime.combine(fim_date,   datetime.max.time())
 
-formas_unicas = df_vendas['forma_pagamento'].dropna().unique().tolist()
-formas_disponiveis = ["Todos"] + sorted(formas_unicas)
-forma_pag_sel = st.sidebar.selectbox("Forma de Pagamento:", formas_disponiveis)
+forma_pag_sel = st.sidebar.selectbox(
+    "Forma de Pagamento:",
+    options=formas_disponiveis,
+    index=0,                    
+    key="forma_pag_sel"       
+)
 
 st.sidebar.divider()
 
-categorias_unicas = df_vendas['categoria'].dropna().unique().tolist()
-categorias_unicas = sorted(categorias_unicas)
 categorias_selecionadas = st.sidebar.multiselect(
     "Categorias:",
     options=categorias_unicas,
-    default=categorias_unicas
+    default=categorias_unicas,       
+    key="categorias_selecionadas"
 )
 
-# 4) Produto
-produtos_unicos = df_vendas['produto'].dropna().unique().tolist()
-produtos_unicos = sorted(produtos_unicos)
 produtos_selecionados = st.sidebar.multiselect(
     "Produtos:",
     options=produtos_unicos,
-    default=produtos_unicos
+    default=produtos_unicos,      
+    key="produtos_selecionados"     
 )
 
 st.sidebar.divider()
+
+if st.sidebar.button("🔄 Resetar Filtros"):
+    st.session_state['datas_selecionadas']       = (data_min, data_max)
+    st.session_state['forma_pag_sel']            = "Todos"
+    st.session_state['categorias_selecionadas']  = categorias_unicas
+    st.session_state['produtos_selecionados']    = produtos_unicos
 
 df_filtrado = df_vendas[
     (df_vendas['data_venda'] >= dt_inicio) &
@@ -361,8 +374,6 @@ with tab2:
 
     st.divider()
 
-    import io  # adicione isso no topo do seu script
-
     st.subheader("Tabela Dinâmica: Receita por Cliente x Categoria")
     pivot = (
         df_filtrado
@@ -376,7 +387,6 @@ with tab2:
     )
     st.dataframe(pivot)
 
-    # Gera um arquivo Excel em memória
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         pivot.to_excel(writer, sheet_name="Receita_Cliente_Categoria")
