@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import io
+import matplotlib.pyplot as plt
 
 from backend import (
     criar_banco,
@@ -54,22 +55,52 @@ categorias_unicas = sorted(df_vendas['categoria'].dropna().unique().tolist())
 produtos_unicos   = sorted(df_vendas['produto'].dropna().unique().tolist())
 
 if st.sidebar.button("🔄 Resetar Filtros"):
-    st.session_state['datas_selecionadas']      = (data_min, data_max)
-    st.session_state['forma_pag_sel']           = "Todos"
-    st.session_state['categorias_selecionadas'] = categorias_unicas
-    st.session_state['produtos_selecionados']   = produtos_unicos
+    st.session_state['intervalo_selecionado']   = (data_min, data_max)
+    st.session_state['dia_selecionado']        = data_min
+    st.session_state['forma_pag_sel']          = "Todos"
+    st.session_state['categorias_selecionadas']= categorias_unicas
+    st.session_state['produtos_selecionados']  = produtos_unicos
 
 st.sidebar.divider()
 
-datas_selecionadas = st.sidebar.slider(
-    "Período de Venda:",
-    min_value=data_min,
-    max_value=data_max,
-    value=st.session_state.get("datas_selecionadas", (data_min, data_max)),
-    format="DD/MM/YYYY",
-    key="datas_selecionadas"
+modo_data = st.sidebar.radio(
+    "Seleção de Data:",
+    options=["Período de Dias", "Dia Único"],
+    index=0
 )
-inicio_date, fim_date = datas_selecionadas
+
+if modo_data == "Período de Dias":
+    default_intervalo = st.session_state.get("intervalo_selecionado", (data_min, data_max))
+    datas_selecionadas = st.sidebar.date_input(
+        "Período de Venda:",
+        value=default_intervalo,
+        min_value=data_min,
+        max_value=data_max,
+        format="DD/MM/YYYY",
+        key="intervalo_selecionado"
+    )
+
+    # Tenta desempacotar dois dias; se vier apenas um, exibe aviso e usa como único dia
+    if isinstance(datas_selecionadas, (list, tuple)) and len(datas_selecionadas) == 2:
+        inicio_date, fim_date = datas_selecionadas
+    else:
+        st.warning(
+            "Você escolheu apenas um dia, selecione outro para verificar os dados."
+        )
+        inicio_date = fim_date = datas_selecionadas
+
+else:  # modo_data == "Dia Único"
+    default_dia = st.session_state.get("dia_selecionado", data_min)
+    dia_selecionado = st.sidebar.date_input(
+        "Selecione o Dia:",
+        value=default_dia,
+        min_value=data_min,
+        max_value=data_max,
+        format="DD/MM/YYYY",
+        key="dia_selecionado"
+    )
+    inicio_date = fim_date = dia_selecionado
+
 dt_inicio = datetime.combine(inicio_date, datetime.min.time())
 dt_fim    = datetime.combine(fim_date,   datetime.max.time())
 
@@ -97,6 +128,7 @@ produtos_selecionados = st.sidebar.multiselect(
 )
 
 st.sidebar.divider()
+
 
 df_filtrado = filtrar_vendas(
     df_vendas,
@@ -276,7 +308,71 @@ with tab2:
 
     st.divider()
 
-    st.subheader("Tabela Dinâmica: Receita por Cliente x Categoria")
+    st.subheader("Top 5 Produtos Mais Vendidos")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Por Quantidade (Top 5)**")
+        top_qtd = (
+            df_filtrado
+            .groupby('produto')['quantidade']
+            .sum()
+            .reset_index()
+            .sort_values('quantidade', ascending=False)
+            .head(5)
+            .rename(columns={'quantidade': 'Quantidade Vendida'})
+        )
+        top_qtd = top_qtd.set_index('produto')
+        st.bar_chart(data=top_qtd['Quantidade Vendida'], use_container_width=True, color="#110B47")
+
+    with col2:
+        st.markdown("**Por Receita (Top 5) – Gráfico de Pizza**")
+
+        top_rev = (
+            df_filtrado
+            .groupby('produto')['valor_total']
+            .sum()
+            .reset_index()
+            .sort_values('valor_total', ascending=False)
+            .head(5)
+            .rename(columns={'valor_total': 'Receita Total (R$)'})
+        )
+
+        fig, ax = plt.subplots(figsize=(3, 3), facecolor='none')
+        ax.set_facecolor('none')
+
+        produtos = top_rev['produto']
+        receitas = top_rev['Receita Total (R$)']
+
+        cores = ['#BBA5CD', '#BF30B6', '#73346F', '#2F1740', '#744397']
+
+        wedges, textos, autotextos = ax.pie(
+            receitas,
+            labels=None,  
+            autopct='%1.1f%%',
+            textprops={'fontsize': 6, 'color': '#FFFFFF'},
+            startangle=90,
+            counterclock=False,
+            colors=cores
+        )
+        ax.axis('equal')
+
+        ax.legend(
+            wedges,                
+            produtos,             
+            title="Produto",       
+            loc="center left",    
+            bbox_to_anchor=(1, 0, 0.5, 1),
+            frameon=False,        
+            labelcolor='black',    
+            fontsize=8
+        )
+        st.pyplot(fig)
+
+    st.divider()
+
+    st.subheader("Receita por Cliente x Categoria")
     pivot = pivot_receita_cliente_categoria(df_filtrado)
     st.dataframe(pivot)
     buffer = io.BytesIO()
